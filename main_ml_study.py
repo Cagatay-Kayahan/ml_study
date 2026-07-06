@@ -4,6 +4,8 @@ import sys
 import warnings
 
 import pandas as pd
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -14,15 +16,25 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
 )
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import (
+    RandomizedSearchCV,
+    StratifiedKFold,
+    cross_val_score,
+    train_test_split,
+)
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.tree import DecisionTreeClassifier
 
 
-# 1. Veri Setini Yükleme
+# ============================================================
+# Kütüphaneler ve sabit değerler
+# ============================================================
 
 DATASET_SLUG = "pavansubhasht/ibm-hr-analytics-attrition-dataset"
 CSV_FILE_NAME = "WA_Fn-UseC_-HR-Employee-Attrition.csv"
 TARGET_COLUMN = "Attrition"
+RANDOM_STATE = 42
 
 PROJECT_DIR = Path(__file__).resolve().parent
 DATA_DIR = PROJECT_DIR / "data"
@@ -30,28 +42,32 @@ CSV_PATH = DATA_DIR / CSV_FILE_NAME
 
 
 def print_section(title):
-    print("\n" + "=" * 70)
+    print("\n" + "=" * 72)
     print(title)
-    print("=" * 70)
+    print("=" * 72)
+
+
+# ============================================================
+# Dataset yükleme
+# ============================================================
 
 
 def load_dataset():
-    print_section("1. Veri Setini Yükleme")
     DATA_DIR.mkdir(exist_ok=True)
 
-    # Önce data klasöründe CSV var mı diye bakıyoruz.
+    # Önce local CSV varsa onu kullanıyoruz.
     if CSV_PATH.exists():
         print(f"CSV dosyası bulundu: {CSV_PATH}")
         return pd.read_csv(CSV_PATH)
 
-    # CSV yoksa Kaggle'dan indirmeyi deniyoruz.
+    # CSV yoksa kagglehub ile indirmeyi deniyoruz.
     print("CSV dosyası bulunamadı. kagglehub ile indirme deneniyor...")
 
     try:
         import kagglehub
 
-        download_folder = Path(kagglehub.dataset_download(DATASET_SLUG))
-        csv_files = list(download_folder.rglob("*.csv"))
+        downloaded_folder = Path(kagglehub.dataset_download(DATASET_SLUG))
+        csv_files = list(downloaded_folder.rglob("*.csv"))
 
         if not csv_files:
             raise FileNotFoundError("İndirilen klasörde CSV dosyası bulunamadı.")
@@ -62,181 +78,22 @@ def load_dataset():
         shutil.copyfile(selected_csv, CSV_PATH)
         print("Dataset indirildi ve data klasörüne kopyalandı.")
         print(f"Kullanılan CSV: {CSV_PATH}")
-
         return pd.read_csv(CSV_PATH)
 
     except Exception as error:
-        print("Otomatik Kaggle indirme çalışmadı.")
+        print("Dataset yüklenemedi.")
         print(f"Hata: {error}")
-        print("Lütfen CSV dosyasını manuel olarak şu konuma koy:")
+        print("Lütfen Kaggle'dan CSV dosyasını indirip şu konuma koy:")
         print(CSV_PATH)
         sys.exit(1)
 
 
-def encode_attrition(dataframe):
-    # Target değerini modelin anlayacağı 0/1 şekline çeviriyoruz.
-    if TARGET_COLUMN not in dataframe.columns:
-        print(f"Hedef kolon bulunamadı: {TARGET_COLUMN}")
-        sys.exit(1)
-
-    target = dataframe[TARGET_COLUMN].map({"Yes": 1, "No": 0})
-
-    if target.isnull().any():
-        print("Attrition kolonunda sadece Yes ve No değerleri olmalı.")
-        sys.exit(1)
-
-    return target.astype(int)
+# ============================================================
+# İlk veri kontrolü
+# ============================================================
 
 
-def add_feature_engineering(dataframe):
-    # IBM HR kolonlarından yeni ve anlamlı feature'lar üretiyoruz.
-    dataframe = dataframe.copy()
-    added_features = []
-
-    if {"MonthlyIncome", "YearsAtCompany"}.issubset(dataframe.columns):
-        dataframe["IncomePerYearAtCompany"] = (
-            dataframe["MonthlyIncome"] / (dataframe["YearsAtCompany"] + 1)
-        )
-        added_features.append("IncomePerYearAtCompany")
-
-    satisfaction_columns = [
-        "EnvironmentSatisfaction",
-        "JobSatisfaction",
-        "RelationshipSatisfaction",
-    ]
-
-    if set(satisfaction_columns).issubset(dataframe.columns):
-        dataframe["TotalSatisfaction"] = dataframe[satisfaction_columns].sum(axis=1)
-        added_features.append("TotalSatisfaction")
-
-    return dataframe, added_features
-
-
-def prepare_features(dataframe, use_feature_engineering=False):
-    # Bu fonksiyon feature ve target ayırma + preprocessing işini toplar.
-    working_df = dataframe.copy()
-    added_features = []
-
-    if use_feature_engineering:
-        working_df, added_features = add_feature_engineering(working_df)
-
-    target = encode_attrition(working_df)
-    features = working_df.drop(columns=[TARGET_COLUMN])
-
-    # Bu kolonlar modele fayda sağlamayan ID veya sabit kolonlardır.
-    columns_to_drop = [
-        "EmployeeNumber",
-        "EmployeeCount",
-        "Over18",
-        "StandardHours",
-    ]
-    dropped_columns = [column for column in columns_to_drop if column in features.columns]
-    features = features.drop(columns=dropped_columns)
-
-    # Kategorik kolonları one-hot encoding ile sayısal hale getiriyoruz.
-    categorical_columns = features.select_dtypes(
-        include=["object", "str", "category"]
-    ).columns.tolist()
-
-    encoded_features = pd.get_dummies(
-        features,
-        columns=categorical_columns,
-        drop_first=True,
-        dtype=int,
-    )
-
-    return encoded_features, target, categorical_columns, dropped_columns, added_features
-
-
-def make_train_test_split(features, target):
-    # Stratify ile target oranını train ve test içinde benzer tutuyoruz.
-    return train_test_split(
-        features,
-        target,
-        test_size=0.2,
-        random_state=42,
-        stratify=target,
-    )
-
-
-def scale_features(X_train, X_test):
-    # Logistic Regression için ölçek farklarını azaltmak iyi olur.
-    scaler = StandardScaler()
-
-    X_train_scaled = pd.DataFrame(
-        scaler.fit_transform(X_train),
-        columns=X_train.columns,
-        index=X_train.index,
-    )
-
-    X_test_scaled = pd.DataFrame(
-        scaler.transform(X_test),
-        columns=X_test.columns,
-        index=X_test.index,
-    )
-
-    return X_train_scaled, X_test_scaled
-
-
-def train_logistic_regression(features, target, penalty="l2", c_value=1.0, solver="lbfgs"):
-    X_train, X_test, y_train, y_test = make_train_test_split(features, target)
-    X_train_scaled, X_test_scaled = scale_features(X_train, X_test)
-
-    model = LogisticRegression(
-        penalty=penalty,
-        C=c_value,
-        solver=solver,
-        max_iter=3000,
-        random_state=42,
-    )
-
-    model.fit(X_train_scaled, y_train)
-    predictions = model.predict(X_test_scaled)
-
-    train_score = model.score(X_train_scaled, y_train)
-    test_score = model.score(X_test_scaled, y_test)
-
-    return {
-        "model": model,
-        "X_train": X_train_scaled,
-        "X_test": X_test_scaled,
-        "y_train": y_train,
-        "y_test": y_test,
-        "predictions": predictions,
-        "train_score": train_score,
-        "test_score": test_score,
-        "difference": train_score - test_score,
-    }
-
-
-def print_train_test_scores(train_score, test_score):
-    difference = train_score - test_score
-
-    print(f"Train Score: {train_score:.4f}")
-    print(f"Test Score: {test_score:.4f}")
-    print(f"Difference: {difference:.4f}")
-
-    if difference > 0.10:
-        print("Yorum: Train skoru test skorundan çok yüksek. Overfitting olabilir.")
-    elif train_score < 0.70 and test_score < 0.70:
-        print("Yorum: İki skor da düşük. Underfitting olabilir.")
-    else:
-        print("Yorum: Train ve test skorlarının arası çok açık değil.")
-
-
-def main():
-    warnings.simplefilter("ignore", ConvergenceWarning)
-    warnings.filterwarnings("ignore", message=".*penalty.*deprecated.*", category=FutureWarning)
-    warnings.filterwarnings("ignore", message=".*Inconsistent values.*", category=UserWarning)
-
-    dataframe = load_dataset()
-
-    if dataframe.empty:
-        print("Dataset boş görünüyor. CSV dosyasını kontrol et.")
-        sys.exit(1)
-
-    # 2. Temel Veri Kontrolü
-    print_section("2. Temel Veri Kontrolü")
+def check_dataset(dataframe):
     print("İlk 5 satır:")
     print(dataframe.head())
 
@@ -252,198 +109,272 @@ def main():
     print("\nEksik değer kontrolü:")
     print(dataframe.isnull().sum())
 
-    # 3. Target Analizi
-    print_section("3. Target Analizi")
-    print("Attrition değer sayıları:")
+    print("\nAttrition değer sayıları:")
     print(dataframe[TARGET_COLUMN].value_counts())
 
     print("\nAttrition yüzde dağılımı:")
     print((dataframe[TARGET_COLUMN].value_counts(normalize=True) * 100).round(2))
-    print("Yorum: Yes sınıfı daha az olduğu için target dengeli değil.")
+    print("Yorum: Attrition=Yes sınıfı daha az olduğu için accuracy tek başına yeterli değildir.")
 
-    # 4. Preprocessing
-    print_section("4. Preprocessing")
-    features, target, categorical_columns, dropped_columns, _ = prepare_features(dataframe)
+
+# ============================================================
+# Preprocessing
+# ============================================================
+
+
+def split_features_and_target(dataframe):
+    # Target kolonunu 0/1 değerine çeviriyoruz.
+    if TARGET_COLUMN not in dataframe.columns:
+        print(f"Hedef kolon bulunamadı: {TARGET_COLUMN}")
+        sys.exit(1)
+
+    target = dataframe[TARGET_COLUMN].map({"Yes": 1, "No": 0})
+
+    if target.isnull().any():
+        print("Attrition kolonunda sadece Yes ve No değerleri olmalı.")
+        sys.exit(1)
+
+    features = dataframe.drop(columns=[TARGET_COLUMN]).copy()
+
+    # ID veya sabit değer gibi faydası düşük kolonları çıkarıyoruz.
+    columns_to_drop = ["EmployeeNumber", "EmployeeCount", "Over18", "StandardHours"]
+    existing_columns_to_drop = [column for column in columns_to_drop if column in features.columns]
+    features = features.drop(columns=existing_columns_to_drop)
 
     print("Attrition encode edildi: Yes -> 1, No -> 0")
+    print("Çıkarılan kolonlar:", existing_columns_to_drop if existing_columns_to_drop else "Yok")
 
-    print("\nSilinen kolonlar:")
-    print(dropped_columns if dropped_columns else "Silinecek kolon bulunmadı.")
+    return features, target
 
-    print("\nKategorik kolonlar:")
-    print(categorical_columns if categorical_columns else "Kategorik kolon bulunmadı.")
 
-    print("\nOne-hot encoding sonrası feature tablosu:")
-    print(features.shape)
+def get_column_types(features):
+    categorical_columns = features.select_dtypes(include=["object", "category", "str"]).columns.tolist()
+    numeric_columns = features.select_dtypes(exclude=["object", "category", "str"]).columns.tolist()
 
-    # 5. Train-Test Split
-    print_section("5. Train-Test Split")
-    X_train, X_test, y_train, y_test = make_train_test_split(features, target)
-    print("Train feature shape:", X_train.shape)
-    print("Test feature shape:", X_test.shape)
-    print("Train target shape:", y_train.shape)
-    print("Test target shape:", y_test.shape)
+    print("Sayısal kolon sayısı:", len(numeric_columns))
+    print("Kategorik kolonlar:", categorical_columns)
 
-    # 6. Logistic Regression Modeli
-    print_section("6. Logistic Regression Modeli")
-    baseline_result = train_logistic_regression(features, target)
-    print_train_test_scores(
-        baseline_result["train_score"],
-        baseline_result["test_score"],
-    )
+    return numeric_columns, categorical_columns
 
-    # 7. Classification Metrikleri
-    print_section("7. Classification Metrikleri")
-    y_test = baseline_result["y_test"]
-    predictions = baseline_result["predictions"]
 
-    print(f"Accuracy: {accuracy_score(y_test, predictions):.4f}")
-    print(f"Precision: {precision_score(y_test, predictions, zero_division=0):.4f}")
-    print(f"Recall: {recall_score(y_test, predictions, zero_division=0):.4f}")
-    print(f"F1-score: {f1_score(y_test, predictions, zero_division=0):.4f}")
-
-    print("\nConfusion matrix:")
-    print(confusion_matrix(y_test, predictions))
-
-    print("\nClassification report:")
-    print(classification_report(y_test, predictions, zero_division=0))
-
-    print(
-        "Yorum: Accuracy tek başına yeterli değil. Attrition=Yes daha az olduğu için "
-        "recall ve F1-score değerlerine de bakmalıyız."
-    )
-
-    # 8. Feature Engineering
-    print_section("8. Feature Engineering")
-    engineered_features, engineered_target, _, _, added_features = prepare_features(
-        dataframe,
-        use_feature_engineering=True,
-    )
-
-    print("Eklenen yeni feature'lar:")
-    print(added_features if added_features else "Yeni feature oluşturulamadı.")
-
-    engineered_result = train_logistic_regression(engineered_features, engineered_target)
-
-    score_comparison = pd.DataFrame(
-        [
-            {
-                "Model": "Baseline",
-                "Train Score": baseline_result["train_score"],
-                "Test Score": baseline_result["test_score"],
-                "Difference": baseline_result["difference"],
-            },
-            {
-                "Model": "Feature Engineering",
-                "Train Score": engineered_result["train_score"],
-                "Test Score": engineered_result["test_score"],
-                "Difference": engineered_result["difference"],
-            },
+def create_preprocessor(numeric_columns, categorical_columns):
+    # ColumnTransformer, sayısal ve kategorik kolonlara farklı işlem uygular.
+    return ColumnTransformer(
+        transformers=[
+            ("numeric", StandardScaler(), numeric_columns),
+            ("categorical", OneHotEncoder(handle_unknown="ignore"), categorical_columns),
         ]
     )
 
-    print(score_comparison.round(4).to_string(index=False))
-    print("Yorum: Yeni feature test skorunu artırıyorsa faydalı olabilir.")
 
-    print("\nSayısal kolonların Attrition ile korelasyonu:")
-    analysis_df = dataframe.copy()
-    analysis_df["AttritionEncoded"] = encode_attrition(analysis_df)
+# ============================================================
+# Model yardımcı fonksiyonları
+# ============================================================
 
-    correlations = (
-        analysis_df.corr(numeric_only=True)["AttritionEncoded"]
-        .drop(labels=["AttritionEncoded"], errors="ignore")
-        .sort_values(ascending=False)
-    )
-    print(correlations)
-    print("Yorum: Korelasyon fikir verir ama tek başına kesin neden göstermez.")
 
-    important_categorical_columns = [
-        "Department",
-        "JobRole",
-        "OverTime",
-        "MaritalStatus",
-    ]
-
-    for column in important_categorical_columns:
-        if column in analysis_df.columns:
-            print(f"\n{column} kolonuna göre Attrition oranı:")
-            attrition_rate = (
-                analysis_df.groupby(column)["AttritionEncoded"]
-                .mean()
-                .sort_values(ascending=False)
-                .round(4)
-            )
-            print(attrition_rate)
-
-    print("Yorum: Bu oranlar kategoriler arasındaki farkları görmek için kullanılır.")
-
-    # 9. Coefficient Analizi
-    print_section("9. Coefficient Analizi")
-    coefficient_table = pd.DataFrame(
-        {
-            "Feature": baseline_result["X_train"].columns,
-            "Coefficient": baseline_result["model"].coef_[0],
-        }
+def create_model_pipeline(model, preprocessor):
+    # Pipeline sayesinde preprocessing sadece train verisinden öğrenilir.
+    return Pipeline(
+        steps=[
+            ("preprocessor", preprocessor),
+            ("model", model),
+        ]
     )
 
-    coefficient_table["Absolute Coefficient"] = coefficient_table["Coefficient"].abs()
-    coefficient_table = coefficient_table.sort_values(
-        "Absolute Coefficient",
-        ascending=False,
+
+def evaluate_model(model_name, model, X_train, X_test, y_train, y_test):
+    model.fit(X_train, y_train)
+    train_predictions = model.predict(X_train)
+    test_predictions = model.predict(X_test)
+
+    train_accuracy = accuracy_score(y_train, train_predictions)
+    test_accuracy = accuracy_score(y_test, test_predictions)
+    precision = precision_score(y_test, test_predictions, zero_division=0)
+    recall = recall_score(y_test, test_predictions, zero_division=0)
+    f1 = f1_score(y_test, test_predictions, zero_division=0)
+
+    print_section(f"{model_name} Sonuçları")
+    print(f"Train accuracy: {train_accuracy:.4f}")
+    print(f"Test accuracy: {test_accuracy:.4f}")
+    print(f"Precision: {precision:.4f}")
+    print(f"Recall: {recall:.4f}")
+    print(f"F1-score: {f1:.4f}")
+
+    print("\nConfusion matrix:")
+    print(confusion_matrix(y_test, test_predictions))
+
+    print("\nClassification report:")
+    print(classification_report(y_test, test_predictions, zero_division=0))
+
+    print("Yorum: Attrition=Yes sınıfını yakalamak önemli olduğu için recall ve F1-score dikkatle incelenmeli.")
+
+    return {
+        "Model": model_name,
+        "Train Accuracy": train_accuracy,
+        "Test Accuracy": test_accuracy,
+        "Precision": precision,
+        "Recall": recall,
+        "F1-score": f1,
+    }
+
+
+def run_cross_validation(models, features, target):
+    print_section("Cross-validation Sonuçları")
+
+    # StratifiedKFold, Yes/No oranını her fold içinde korumaya çalışır.
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
+    cv_results = []
+
+    for model_name, model in models.items():
+        scores = cross_val_score(model, features, target, cv=cv, scoring="accuracy")
+
+        cv_results.append(
+            {
+                "Model": model_name,
+                "CV Mean Accuracy": scores.mean(),
+                "CV Std Accuracy": scores.std(),
+            }
+        )
+
+    cv_results_df = pd.DataFrame(cv_results)
+    print(cv_results_df.round(4).to_string(index=False))
+
+    return cv_results_df
+
+
+def tune_random_forest(random_forest_pipeline, X_train, y_train):
+    print_section("Hyperparameter Tuning Sonuçları")
+
+    # RandomizedSearchCV, tüm kombinasyonları değil seçilen rastgele denemeleri çalıştırır.
+    parameter_grid = {
+        "model__n_estimators": [100, 200, 300, 500],
+        "model__max_depth": [None, 5, 10, 20, 30],
+        "model__min_samples_split": [2, 5, 10],
+        "model__min_samples_leaf": [1, 2, 4],
+        "model__max_features": ["sqrt", "log2", None],
+    }
+
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
+
+    search = RandomizedSearchCV(
+        estimator=random_forest_pipeline,
+        param_distributions=parameter_grid,
+        n_iter=20,
+        scoring="f1",
+        cv=cv,
+        random_state=RANDOM_STATE,
+        n_jobs=-1,
     )
 
-    print("En etkili görünen ilk 15 feature:")
-    print(coefficient_table.head(15).round(4).to_string(index=False))
-    print("Yorum: Pozitif katsayı Attrition=1 ihtimalini artırır.")
-    print("Yorum: Negatif katsayı Attrition=1 ihtimalini azaltır.")
-    print("Yorum: Katsayılar kesin sebep-sonuç açıklaması değildir.")
+    search.fit(X_train, y_train)
 
-    # 10. Regularization Denemeleri
-    print_section("10. Regularization Denemeleri")
-    c_values = [0.01, 0.1, 1, 10, 100]
-    regularization_results = []
+    print("En iyi parametreler:")
+    print(search.best_params_)
+    print(f"En iyi CV F1-score: {search.best_score_:.4f}")
 
-    X_train, X_test, y_train, y_test = make_train_test_split(features, target)
-    X_train_scaled, X_test_scaled = scale_features(X_train, X_test)
+    return search.best_estimator_, search.best_score_, search.best_params_
 
-    experiments = [
-        ("L1", "l1", "liblinear"),
-        ("L2", "l2", "liblinear"),
-    ]
 
-    for label, penalty, solver in experiments:
-        for c_value in c_values:
-            try:
-                model = LogisticRegression(
-                    penalty=penalty,
-                    C=c_value,
-                    solver=solver,
-                    max_iter=3000,
-                    random_state=42,
-                )
-                model.fit(X_train_scaled, y_train)
+def print_final_comment(comparison_df, tuned_result):
+    print_section("Sonuç Yorumu")
+    best_default_model = comparison_df.sort_values("F1-score", ascending=False).iloc[0]
 
-                train_score = model.score(X_train_scaled, y_train)
-                test_score = model.score(X_test_scaled, y_test)
+    print("Varsayılan modeller içinde F1-score'a göre en iyi model:")
+    print(f"{best_default_model['Model']} - F1-score: {best_default_model['F1-score']:.4f}")
 
-                regularization_results.append(
-                    {
-                        "Penalty": label,
-                        "C": c_value,
-                        "Train Score": train_score,
-                        "Test Score": test_score,
-                        "Difference": train_score - test_score,
-                    }
-                )
-            except Exception as error:
-                print(f"{label}, C={c_value} atlandı. Hata: {error}")
+    print("\nTuned Random Forest test sonucu:")
+    print(f"Test accuracy: {tuned_result['Test Accuracy']:.4f}")
+    print(f"Recall: {tuned_result['Recall']:.4f}")
+    print(f"F1-score: {tuned_result['F1-score']:.4f}")
 
-    regularization_table = pd.DataFrame(regularization_results)
-    print(regularization_table.round(4).to_string(index=False))
+    print(
+        "\nGenel yorum: Bu problem binary classification problemidir. "
+        "Attrition=Yes sınıfı az olduğu için sadece accuracy'ye bakmak yanıltıcı olabilir. "
+        "Recall ve F1-score ayrılan çalışanları yakalamayı daha iyi gösterir."
+    )
 
-    print("Yorum: Küçük C daha güçlü regularization demektir.")
-    print("Yorum: Büyük C daha zayıf regularization demektir.")
-    print("Yorum: Train yüksek ama test düşükse overfitting olabilir.")
+
+def main():
+    warnings.simplefilter("ignore", ConvergenceWarning)
+
+    print_section("Dataset Yükleme")
+    dataframe = load_dataset()
+
+    if dataframe.empty:
+        print("Dataset boş görünüyor. CSV dosyasını kontrol et.")
+        sys.exit(1)
+
+    print_section("İlk Veri Kontrolü")
+    check_dataset(dataframe)
+
+    print_section("Preprocessing")
+    features, target = split_features_and_target(dataframe)
+    numeric_columns, categorical_columns = get_column_types(features)
+    preprocessor = create_preprocessor(numeric_columns, categorical_columns)
+
+    print_section("Train/Test Split")
+    X_train, X_test, y_train, y_test = train_test_split(
+        features,
+        target,
+        test_size=0.2,
+        random_state=RANDOM_STATE,
+        stratify=target,
+    )
+
+    print("X_train shape:", X_train.shape)
+    print("X_test shape:", X_test.shape)
+    print("y_train dağılımı:")
+    print(y_train.value_counts(normalize=True).round(4))
+    print("y_test dağılımı:")
+    print(y_test.value_counts(normalize=True).round(4))
+
+    logistic_regression = create_model_pipeline(
+        LogisticRegression(max_iter=3000, random_state=RANDOM_STATE),
+        preprocessor,
+    )
+    decision_tree = create_model_pipeline(
+        DecisionTreeClassifier(random_state=RANDOM_STATE),
+        preprocessor,
+    )
+    random_forest = create_model_pipeline(
+        RandomForestClassifier(random_state=RANDOM_STATE),
+        preprocessor,
+    )
+
+    models = {
+        "Logistic Regression": logistic_regression,
+        "Decision Tree": decision_tree,
+        "Random Forest": random_forest,
+    }
+
+    model_results = []
+    for model_name, model in models.items():
+        result = evaluate_model(model_name, model, X_train, X_test, y_train, y_test)
+        model_results.append(result)
+
+    print_section("Model Karşılaştırma")
+    comparison_df = pd.DataFrame(model_results)
+    print(comparison_df.round(4).to_string(index=False))
+
+    run_cross_validation(models, features, target)
+
+    tuned_random_forest, _, _ = tune_random_forest(random_forest, X_train, y_train)
+
+    tuned_result = evaluate_model(
+        "Tuned Random Forest",
+        tuned_random_forest,
+        X_train,
+        X_test,
+        y_train,
+        y_test,
+    )
+
+    print_section("Default Random Forest vs Tuned Random Forest")
+    default_rf_result = comparison_df[comparison_df["Model"] == "Random Forest"].iloc[0].to_dict()
+    rf_comparison = pd.DataFrame([default_rf_result, tuned_result])
+    print(rf_comparison.round(4).to_string(index=False))
+
+    print_final_comment(comparison_df, tuned_result)
 
 
 if __name__ == "__main__":

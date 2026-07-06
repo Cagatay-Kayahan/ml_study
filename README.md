@@ -1,56 +1,91 @@
 # ML Cumulative Study
 
-Bu proje, IBM HR Analytics Employee Attrition veri seti üzerinde temel makine öğrenmesi adımlarını tek bir çalışma dosyasında toplamak için hazırlanmıştır.
+Bu proje, IBM HR Employee Attrition veri seti üzerinde çalışanların şirketten ayrılıp ayrılmayacağını tahmin etmek için hazırlanmış bir makine öğrenmesi çalışmasıdır.
 
-Ana çalışma dosyası:
+## Proje Amacı
 
-```bash
-main_ml_study.py
-```
+Amaç, `Attrition` kolonunu target olarak kullanarak binary classification modeli kurmaktır.
 
-Projedeki amaç; veri okuma, veri kontrolü, preprocessing, model eğitimi, model değerlendirme, feature engineering, coefficient analizi ve regularization gibi adımları tek bir bütün akış içinde incelemektir.
-
-## Dataset
-
-Bu projede kullanılan veri seti:
-
-**IBM HR Analytics Employee Attrition & Performance**
-
-Kaggle dataset slug:
-
-```text
-pavansubhasht/ibm-hr-analytics-attrition-dataset
-```
-
-Hedef kolon:
-
-```text
-Attrition
-```
-
-Kod içinde `Attrition` kolonu şu şekilde sayısal hale getirilir:
+`Attrition` değeri kod içinde şu şekilde ele alınır:
 
 ```text
 Yes -> 1
 No -> 0
 ```
 
-Bu sayede çalışan ayrılma durumu binary classification problemi olarak ele alınır.
+## Dataset
 
-## Proje Yapısı
+Kullanılan dataset:
+
+**IBM HR Analytics Employee Attrition & Performance**
+
+Kaggle slug:
+
+```text
+pavansubhasht/ibm-hr-analytics-attrition-dataset
+```
+
+Kod önce CSV dosyasını şu konumda arar:
+
+```text
+data/WA_Fn-UseC_-HR-Employee-Attrition.csv
+```
+
+Dosya yoksa `kagglehub` ile indirmeyi dener. `data/` klasörü `.gitignore` içinde olabilir; veri dosyasının GitHub'a eklenmesi zorunlu değildir.
+
+## Kullanılan Modeller
+
+- Logistic Regression
+- Decision Tree Classifier
+- Random Forest Classifier
+
+## Kullanılan Metrikler
+
+- Accuracy
+- Precision
+- Recall
+- F1-score
+- Confusion matrix
+- Classification report
+- Cross-validation mean accuracy
+- Cross-validation std accuracy
+
+Bu proje binary classification olduğu için accuracy, precision, recall, F1-score ve confusion matrix kullanılmıştır. MAE, MSE ve R² regression problemleri için daha uygundur.
+
+## Hyperparameter Tuning
+
+Random Forest modeli için `RandomizedSearchCV` kullanılmıştır.
+
+Aranan bazı parametreler:
+
+- `n_estimators`
+- `max_depth`
+- `min_samples_split`
+- `min_samples_leaf`
+- `max_features`
+
+Tuning sırasında scoring olarak `f1` kullanılır. Çünkü `Attrition=Yes` sınıfını yakalamak önemlidir ve accuracy tek başına yeterli olmayabilir.
+
+## Dosya Yapısı
 
 ```text
 ml_cumulative_study/
 ├── data/
-│   └── WA_Fn-UseC_-HR-Employee-Attrition.csv
 ├── main_ml_study.py
 ├── README.md
-└── requirements.txt
+├── requirements.txt
+└── .gitignore
+```
+
+Ana çalışma dosyası:
+
+```text
+main_ml_study.py
 ```
 
 ## Kurulum
 
-Gerekli paketleri yüklemek için proje kök klasöründe şu komut çalıştırılır:
+Proje klasöründe gerekli paketleri yüklemek için:
 
 ```bash
 pip install -r requirements.txt
@@ -58,59 +93,22 @@ pip install -r requirements.txt
 
 ## Çalıştırma
 
-Ana çalışma dosyasını çalıştırmak için proje kök klasöründe şu komut kullanılır:
+Proje klasöründe:
 
 ```bash
 python main_ml_study.py
 ```
 
-## CSV Dosyası
-
-Script önce CSV dosyasını şu konumda arar:
-
-```text
-data/WA_Fn-UseC_-HR-Employee-Attrition.csv
-```
-
-Dosya bu konumda bulunmazsa `kagglehub` ile veri setini Kaggle üzerinden indirmeyi dener. İndirme başarılı olursa CSV dosyası `data` klasörüne kopyalanır ve ana script bu dosyayı kullanır.
-
-Otomatik indirme çalışmazsa dataset Kaggle üzerinden manuel indirilebilir. Bu durumda CSV dosyasının şu konuma yerleştirilmesi gerekir:
-
-```text
-data/WA_Fn-UseC_-HR-Employee-Attrition.csv
-```
-
-## main_ml_study.py İçeriği
-
-`main_ml_study.py` dosyasında aşağıdaki konular tek bir akış içinde yer alır:
+Terminal çıktısı bölüm bölüm ilerler:
 
 - Dataset yükleme
-- Temel veri kontrolü
-- Eksik değer kontrolü
-- Target analizi
-- Feature ve target ayırma
-- Gereksiz veya sabit kolonları çıkarma
-- Kategorik kolonları one-hot encoding ile dönüştürme
-- Train-test split
-- Logistic Regression baseline model
-- Train ve test skoru karşılaştırması
-- Overfitting / underfitting yorumu
-- Accuracy, precision, recall, F1-score metrikleri
-- Confusion matrix ve classification report
-- Feature engineering örneği
-- Feature değerlendirme
-- Logistic Regression coefficient analizi
-- L1 ve L2 regularization denemesi
-- Farklı C değerleriyle model karşılaştırması
-
-## Kullanılan Temel Paketler
-
-```text
-pandas
-scikit-learn
-kagglehub
-```
-
-## Genel Not
-
-Bu proje tek bir ana Python dosyası üzerinden ilerleyen kümülatif bir makine öğrenmesi çalışmasıdır. Yeni konular eklendikçe ana çalışma akışı `main_ml_study.py` içinde genişletilebilir.
+- İlk veri kontrolü
+- Preprocessing
+- Train/test split
+- Logistic Regression sonuçları
+- Decision Tree sonuçları
+- Random Forest sonuçları
+- Model karşılaştırma
+- Cross-validation sonuçları
+- Hyperparameter tuning sonuçları
+- Sonuç yorumu
