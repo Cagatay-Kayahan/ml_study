@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -15,121 +13,35 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
 
 
-RANDOM_STATE = 42
-TEST_SIZE = 0.20
-
-proje_klasoru = Path(__file__).resolve().parent
-sonuclar_klasoru = proje_klasoru / "results"
-sonuclar_klasoru.mkdir(exist_ok=True)
-
-
-def modelleri_egit_ve_test_et(veri_seti_adi, X, y):
-    X = pd.get_dummies(X, drop_first=True, dtype=int)
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
-        test_size=TEST_SIZE,
-        random_state=RANDOM_STATE,
-        stratify=y,
-    )
-
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-
-    logistic_model = LogisticRegression(max_iter=5000)
-    decision_tree_model = DecisionTreeClassifier(random_state=RANDOM_STATE)
-    random_forest_model = RandomForestClassifier(
-        n_estimators=100,
-        random_state=RANDOM_STATE,
-    )
-
-    logistic_model.fit(X_train_scaled, y_train)
-    decision_tree_model.fit(X_train, y_train)
-    random_forest_model.fit(X_train, y_train)
-
-    modeller = [
-        (
-            "Logistic Regression",
-            logistic_model.predict(X_train_scaled),
-            logistic_model.predict(X_test_scaled),
-        ),
-        (
-            "Decision Tree",
-            decision_tree_model.predict(X_train),
-            decision_tree_model.predict(X_test),
-        ),
-        (
-            "Random Forest",
-            random_forest_model.predict(X_train),
-            random_forest_model.predict(X_test),
-        ),
-    ]
-
-    sonuclar = []
-
-    print("\n" + "=" * 70)
-    print(veri_seti_adi)
-    print(f"Kayıt sayısı: {len(X)} | Özellik sayısı: {X.shape[1]}")
-    print("=" * 70)
-
-    for model_adi, train_tahmin, test_tahmin in modeller:
-        matrix = confusion_matrix(y_test, test_tahmin)
-
-        sonuc = {
-            "Veri Seti": veri_seti_adi,
-            "Model": model_adi,
-            "Train Accuracy": accuracy_score(y_train, train_tahmin),
-            "Test Accuracy": accuracy_score(y_test, test_tahmin),
-            "Precision": precision_score(
-                y_test,
-                test_tahmin,
-                zero_division=0,
-            ),
-            "Recall": recall_score(
-                y_test,
-                test_tahmin,
-                zero_division=0,
-            ),
-            "F1-score": f1_score(
-                y_test,
-                test_tahmin,
-                zero_division=0,
-            ),
-            "TN": int(matrix[0, 0]),
-            "FP": int(matrix[0, 1]),
-            "FN": int(matrix[1, 0]),
-            "TP": int(matrix[1, 1]),
-        }
-
-        sonuclar.append(sonuc)
-
-        print(f"\n{model_adi}")
-        print(f"Train Accuracy: {sonuc['Train Accuracy']:.4f}")
-        print(f"Test Accuracy:  {sonuc['Test Accuracy']:.4f}")
-        print(f"Precision:      {sonuc['Precision']:.4f}")
-        print(f"Recall:         {sonuc['Recall']:.4f}")
-        print(f"F1-score:       {sonuc['F1-score']:.4f}")
-        print("Confusion Matrix:")
-        print(matrix)
-
-    return sonuclar
+# Bu fonksiyon sadece sonuçları ekrana yazdırır.
+def sonucu_yazdir(model_adi, y_train, train_tahmin, y_test, test_tahmin):
+    print(f"\n{model_adi}")
+    print(f"Train Accuracy: {accuracy_score(y_train, train_tahmin):.4f}")
+    print(f"Test Accuracy:  {accuracy_score(y_test, test_tahmin):.4f}")
+    print(f"Precision:      {precision_score(y_test, test_tahmin, zero_division=0):.4f}")
+    print(f"Recall:         {recall_score(y_test, test_tahmin, zero_division=0):.4f}")
+    print(f"F1-score:       {f1_score(y_test, test_tahmin, zero_division=0):.4f}")
+    print("Confusion Matrix:")
+    print(confusion_matrix(y_test, test_tahmin))
 
 
-tum_sonuclar = []
+# ============================================================
+# 1. IBM HR ANALYTICS
+# ============================================================
 
+print("\n" + "=" * 60)
+print("IBM HR ANALYTICS")
+print("=" * 60)
 
-# 1. IBM HR Analytics
-ibm_yolu = (
-    proje_klasoru
-    / "data"
-    / "ibm_hr"
-    / "WA_Fn-UseC_-HR-Employee-Attrition.csv"
+# Veri setini oku
+ibm_veri = pd.read_csv(
+    "data/ibm_hr/WA_Fn-UseC_-HR-Employee-Attrition.csv"
 )
-ibm_veri = pd.read_csv(ibm_yolu)
 
+# Hedef sütun: Attrition
 ibm_y = ibm_veri["Attrition"].map({"No": 0, "Yes": 1})
+
+# Tahminde kullanılacak sütunlar
 ibm_X = ibm_veri.drop(
     columns=[
         "Attrition",
@@ -137,102 +49,249 @@ ibm_X = ibm_veri.drop(
         "EmployeeCount",
         "Over18",
         "StandardHours",
-    ],
-    errors="ignore",
+    ]
 )
 
-tum_sonuclar.extend(
-    modelleri_egit_ve_test_et("IBM HR Analytics", ibm_X, ibm_y)
+# Metin sütunlarını sayıya çevir
+ibm_X = pd.get_dummies(ibm_X, drop_first=True, dtype=int)
+
+# Train ve test verilerini ayır
+ibm_X_train, ibm_X_test, ibm_y_train, ibm_y_test = train_test_split(
+    ibm_X,
+    ibm_y,
+    test_size=0.20,
+    random_state=42,
+    stratify=ibm_y,
+)
+
+# Logistic Regression için scaling
+ibm_scaler = StandardScaler()
+ibm_X_train_scaled = ibm_scaler.fit_transform(ibm_X_train)
+ibm_X_test_scaled = ibm_scaler.transform(ibm_X_test)
+
+# Modelleri oluştur
+ibm_logistic = LogisticRegression(max_iter=5000)
+ibm_tree = DecisionTreeClassifier(random_state=42)
+ibm_forest = RandomForestClassifier(n_estimators=100, random_state=42)
+
+# Modelleri eğit
+ibm_logistic.fit(ibm_X_train_scaled, ibm_y_train)
+ibm_tree.fit(ibm_X_train, ibm_y_train)
+ibm_forest.fit(ibm_X_train, ibm_y_train)
+
+# Tahminleri al
+ibm_logistic_train_tahmin = ibm_logistic.predict(ibm_X_train_scaled)
+ibm_logistic_test_tahmin = ibm_logistic.predict(ibm_X_test_scaled)
+
+ibm_tree_train_tahmin = ibm_tree.predict(ibm_X_train)
+ibm_tree_test_tahmin = ibm_tree.predict(ibm_X_test)
+
+ibm_forest_train_tahmin = ibm_forest.predict(ibm_X_train)
+ibm_forest_test_tahmin = ibm_forest.predict(ibm_X_test)
+
+# Sonuçları göster
+sonucu_yazdir(
+    "Logistic Regression",
+    ibm_y_train,
+    ibm_logistic_train_tahmin,
+    ibm_y_test,
+    ibm_logistic_test_tahmin,
+)
+
+sonucu_yazdir(
+    "Decision Tree",
+    ibm_y_train,
+    ibm_tree_train_tahmin,
+    ibm_y_test,
+    ibm_tree_test_tahmin,
+)
+
+sonucu_yazdir(
+    "Random Forest",
+    ibm_y_train,
+    ibm_forest_train_tahmin,
+    ibm_y_test,
+    ibm_forest_test_tahmin,
 )
 
 
-# 2. Telco Customer Churn
-telco_yolu = (
-    proje_klasoru
-    / "data"
-    / "telco_churn"
-    / "WA_Fn-UseC_-Telco-Customer-Churn.csv"
-)
-telco_veri = pd.read_csv(telco_yolu)
+# ============================================================
+# 2. TELCO CUSTOMER CHURN
+# ============================================================
 
+print("\n" + "=" * 60)
+print("TELCO CUSTOMER CHURN")
+print("=" * 60)
+
+# Veri setini oku
+telco_veri = pd.read_csv(
+    "data/telco_churn/WA_Fn-UseC_-Telco-Customer-Churn.csv"
+)
+
+# TotalCharges sütununu sayısal hale getir
 telco_veri["TotalCharges"] = pd.to_numeric(
     telco_veri["TotalCharges"],
     errors="coerce",
 )
-telco_veri = telco_veri.dropna().copy()
 
+# Dönüşmeyen boş satırları kaldır
+telco_veri = telco_veri.dropna()
+
+# Hedef sütun: Churn
 telco_y = telco_veri["Churn"].map({"No": 0, "Yes": 1})
-telco_X = telco_veri.drop(
-    columns=["Churn", "customerID"],
-    errors="ignore",
+
+# Tahminde kullanılacak sütunlar
+telco_X = telco_veri.drop(columns=["Churn", "customerID"])
+
+# Metin sütunlarını sayıya çevir
+telco_X = pd.get_dummies(telco_X, drop_first=True, dtype=int)
+
+# Train ve test verilerini ayır
+telco_X_train, telco_X_test, telco_y_train, telco_y_test = train_test_split(
+    telco_X,
+    telco_y,
+    test_size=0.20,
+    random_state=42,
+    stratify=telco_y,
 )
 
-tum_sonuclar.extend(
-    modelleri_egit_ve_test_et(
-        "Telco Customer Churn",
-        telco_X,
-        telco_y,
-    )
+# Logistic Regression için scaling
+telco_scaler = StandardScaler()
+telco_X_train_scaled = telco_scaler.fit_transform(telco_X_train)
+telco_X_test_scaled = telco_scaler.transform(telco_X_test)
+
+# Modelleri oluştur
+telco_logistic = LogisticRegression(max_iter=5000)
+telco_tree = DecisionTreeClassifier(random_state=42)
+telco_forest = RandomForestClassifier(n_estimators=100, random_state=42)
+
+# Modelleri eğit
+telco_logistic.fit(telco_X_train_scaled, telco_y_train)
+telco_tree.fit(telco_X_train, telco_y_train)
+telco_forest.fit(telco_X_train, telco_y_train)
+
+# Tahminleri al
+telco_logistic_train_tahmin = telco_logistic.predict(telco_X_train_scaled)
+telco_logistic_test_tahmin = telco_logistic.predict(telco_X_test_scaled)
+
+telco_tree_train_tahmin = telco_tree.predict(telco_X_train)
+telco_tree_test_tahmin = telco_tree.predict(telco_X_test)
+
+telco_forest_train_tahmin = telco_forest.predict(telco_X_train)
+telco_forest_test_tahmin = telco_forest.predict(telco_X_test)
+
+# Sonuçları göster
+sonucu_yazdir(
+    "Logistic Regression",
+    telco_y_train,
+    telco_logistic_train_tahmin,
+    telco_y_test,
+    telco_logistic_test_tahmin,
+)
+
+sonucu_yazdir(
+    "Decision Tree",
+    telco_y_train,
+    telco_tree_train_tahmin,
+    telco_y_test,
+    telco_tree_test_tahmin,
+)
+
+sonucu_yazdir(
+    "Random Forest",
+    telco_y_train,
+    telco_forest_train_tahmin,
+    telco_y_test,
+    telco_forest_test_tahmin,
 )
 
 
-# 3. Mushroom Classification
-mushroom_yolu = proje_klasoru / "data" / "mushroom" / "mushrooms.csv"
-mushroom_veri = pd.read_csv(mushroom_yolu)
+# ============================================================
+# 3. MUSHROOM CLASSIFICATION
+# ============================================================
 
-# edible = 0, poisonous = 1
+print("\n" + "=" * 60)
+print("MUSHROOM CLASSIFICATION")
+print("=" * 60)
+
+# Veri setini oku
+mushroom_veri = pd.read_csv("data/mushroom/mushrooms.csv")
+
+# Hedef sütun: class
+# e = edible = 0
+# p = poisonous = 1
 mushroom_y = mushroom_veri["class"].map({"e": 0, "p": 1})
+
+# Tahminde kullanılacak sütunlar
 mushroom_X = mushroom_veri.drop(columns=["class"])
 
-tum_sonuclar.extend(
-    modelleri_egit_ve_test_et(
-        "Mushroom Classification",
-        mushroom_X,
-        mushroom_y,
-    )
+# Metin sütunlarını sayıya çevir
+mushroom_X = pd.get_dummies(mushroom_X, drop_first=True, dtype=int)
+
+# Train ve test verilerini ayır
+(
+    mushroom_X_train,
+    mushroom_X_test,
+    mushroom_y_train,
+    mushroom_y_test,
+) = train_test_split(
+    mushroom_X,
+    mushroom_y,
+    test_size=0.20,
+    random_state=42,
+    stratify=mushroom_y,
 )
 
+# Logistic Regression için scaling
+mushroom_scaler = StandardScaler()
+mushroom_X_train_scaled = mushroom_scaler.fit_transform(mushroom_X_train)
+mushroom_X_test_scaled = mushroom_scaler.transform(mushroom_X_test)
 
-# Sonuçları kaydet
-sonuclar_df = pd.DataFrame(tum_sonuclar)
-sonuclar_df.to_csv(
-    sonuclar_klasoru / "model_sonuclari.csv",
-    index=False,
-    encoding="utf-8-sig",
+# Modelleri oluştur
+mushroom_logistic = LogisticRegression(max_iter=5000)
+mushroom_tree = DecisionTreeClassifier(random_state=42)
+mushroom_forest = RandomForestClassifier(n_estimators=100, random_state=42)
+
+# Modelleri eğit
+mushroom_logistic.fit(mushroom_X_train_scaled, mushroom_y_train)
+mushroom_tree.fit(mushroom_X_train, mushroom_y_train)
+mushroom_forest.fit(mushroom_X_train, mushroom_y_train)
+
+# Tahminleri al
+mushroom_logistic_train_tahmin = mushroom_logistic.predict(
+    mushroom_X_train_scaled
+)
+mushroom_logistic_test_tahmin = mushroom_logistic.predict(
+    mushroom_X_test_scaled
 )
 
-with open(
-    sonuclar_klasoru / "llm_sonuclari.txt",
-    "w",
-    encoding="utf-8",
-) as dosya:
-    for veri_seti_adi in sonuclar_df["Veri Seti"].unique():
-        dosya.write("=" * 70 + "\n")
-        dosya.write(veri_seti_adi + "\n")
-        dosya.write("=" * 70 + "\n\n")
+mushroom_tree_train_tahmin = mushroom_tree.predict(mushroom_X_train)
+mushroom_tree_test_tahmin = mushroom_tree.predict(mushroom_X_test)
 
-        satirlar = sonuclar_df[
-            sonuclar_df["Veri Seti"] == veri_seti_adi
-        ]
+mushroom_forest_train_tahmin = mushroom_forest.predict(mushroom_X_train)
+mushroom_forest_test_tahmin = mushroom_forest.predict(mushroom_X_test)
 
-        for _, satir in satirlar.iterrows():
-            dosya.write(f"Model: {satir['Model']}\n")
-            dosya.write(
-                f"Train Accuracy: {satir['Train Accuracy']:.4f}\n"
-            )
-            dosya.write(
-                f"Test Accuracy: {satir['Test Accuracy']:.4f}\n"
-            )
-            dosya.write(f"Precision: {satir['Precision']:.4f}\n")
-            dosya.write(f"Recall: {satir['Recall']:.4f}\n")
-            dosya.write(f"F1-score: {satir['F1-score']:.4f}\n")
-            dosya.write(
-                "Confusion Matrix: "
-                f"[[{satir['TN']}, {satir['FP']}], "
-                f"[{satir['FN']}, {satir['TP']}]]\n\n"
-            )
+# Sonuçları göster
+sonucu_yazdir(
+    "Logistic Regression",
+    mushroom_y_train,
+    mushroom_logistic_train_tahmin,
+    mushroom_y_test,
+    mushroom_logistic_test_tahmin,
+)
 
-print("\n" + "=" * 70)
-print("TÜM TESTLER TAMAMLANDI")
-print("=" * 70)
-print("Sonuçlar results klasörüne kaydedildi.")
+sonucu_yazdir(
+    "Decision Tree",
+    mushroom_y_train,
+    mushroom_tree_train_tahmin,
+    mushroom_y_test,
+    mushroom_tree_test_tahmin,
+)
+
+sonucu_yazdir(
+    "Random Forest",
+    mushroom_y_train,
+    mushroom_forest_train_tahmin,
+    mushroom_y_test,
+    mushroom_forest_test_tahmin,
+)
