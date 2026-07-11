@@ -1,0 +1,110 @@
+
+======================================================================
+IBM HR Analytics
+Kayıt sayısı: 1470 | Özellik sayısı: 44
+======================================================================
+
+Logistic Regression
+Train Accuracy: 0.9022
+Test Accuracy:  0.8605
+Precision:      0.6154
+Recall:         0.3404
+F1-score:       0.4384
+Confusion Matrix:
+[[237  10]
+ [ 31  16]]
+
+Decision Tree
+Train Accuracy: 1.0000
+Test Accuracy:  0.7653
+Precision:      0.3103
+Recall:         0.3830
+F1-score:       0.3429
+Confusion Matrix:
+[[207  40]
+ [ 29  18]]
+
+Random Forest
+Train Accuracy: 1.0000
+Test Accuracy:  0.8333
+Precision:      0.4167
+Recall:         0.1064
+F1-score:       0.1695
+Confusion Matrix:
+[[240   7]
+ [ 42   5]]
+
+======================================================================
+Telco Customer Churn
+Kayıt sayısı: 7032 | Özellik sayısı: 30
+======================================================================
+
+Logistic Regression
+Train Accuracy: 0.8043
+Test Accuracy:  0.8038
+Precision:      0.6476
+Recall:         0.5749
+F1-score:       0.6091
+Confusion Matrix:
+[[916 117]
+ [159 215]]
+
+Decision Tree
+Train Accuracy: 0.9988
+Test Accuracy:  0.7186
+Precision:      0.4701
+Recall:         0.4626
+F1-score:       0.4663
+Confusion Matrix:
+[[838 195]
+ [201 173]]
+
+Random Forest
+Train Accuracy: 0.9988
+Test Accuracy:  0.7896
+Precision:      0.6258
+Recall:         0.5187
+F1-score:       0.5673
+Confusion Matrix:
+[[917 116]
+ [180 194]]
+
+======================================================================
+Mushroom Classification
+Kayıt sayısı: 8124 | Özellik sayısı: 95
+======================================================================
+
+Logistic Regression
+Train Accuracy: 1.0000
+Test Accuracy:  1.0000
+Precision:      1.0000
+Recall:         1.0000
+F1-score:       1.0000
+Confusion Matrix:
+[[842   0]
+ [  0 783]]
+
+Decision Tree
+Train Accuracy: 1.0000
+Test Accuracy:  1.0000
+Precision:      1.0000
+Recall:         1.0000
+F1-score:       1.0000
+Confusion Matrix:
+[[842   0]
+ [  0 783]]
+
+Random Forest
+Train Accuracy: 1.0000
+Test Accuracy:  1.0000
+Precision:      1.0000
+Recall:         1.0000
+F1-score:       1.0000
+Confusion Matrix:
+[[842   0]
+ [  0 783]]
+
+======================================================================
+TÜM TESTLER TAMAMLANDI
+======================================================================
+Sonuçlar results klasörüne kaydedildi.
